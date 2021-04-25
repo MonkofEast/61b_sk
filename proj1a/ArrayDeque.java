@@ -2,7 +2,6 @@ public class ArrayDeque<T> {
     /** properties */
     public T[] items;
     public int size;
-    private int startFrom; // where does the logical array starts
     private int nextFirst;
     private int nextLast;
     private static int REFACTOR = 2;
@@ -13,7 +12,6 @@ public class ArrayDeque<T> {
     public ArrayDeque() {
         size = 0;
         items = (T []) new Object[8];
-        startFrom = -1;
         nextFirst = 3;
         nextLast = 4;
     }
@@ -23,18 +21,9 @@ public class ArrayDeque<T> {
         res.size = other.size;
         res.nextFirst = other.nextFirst;
         res.nextLast = other.nextLast;
-        res.startFrom = other.startFrom;
         res.items = (T []) new Object[res.size];
         System.arraycopy(other.items, 0, res.items, 0, other.size);
         return res;
-    }
-    /** update startFrom */ // given up this method
-    private int setStartFromByNextFirst(int prevStartFrom, int nextFirst) {
-        // CAUTION: nextFirst must be true nextFirst (after updated)
-        if (nextFirst == items.length) {
-            return 0;
-        }
-        return nextFirst - 1;
     }
     /** circulate the index, assume at most 1 round */
     private int circulate(int startIdx, int deltaIdx, int capacity) {
@@ -51,28 +40,36 @@ public class ArrayDeque<T> {
         }
     }
     /** resize */
+    // fnd how many items are on the right of startFrom = nextFirst - 1
+    private int getPrevRightNum(int nextFirst, int nextLast, int prevLen, int startFrom) {
+        if (nextFirst - nextLast >= -1) {
+            // "nextFirst - nextLast == -1" means the array is full
+            return prevLen - startFrom;
+        }
+        else {
+            return nextLast - nextFirst;
+        }
+    }
     private void resize(int toCapacity) {
         // change capacity, add or reduce
         T[] newItems = (T []) new Object[toCapacity];
         // copy items, concentrate on left/right of startFrom
         int prevLen = items.length;
         int newLen = newItems.length;
-        int prevRightLen = prevLen - startFrom;
-        int prevLeftLen = size - prevRightLen;
-        // CAUTION
-        // prevLeftLen can only be precisely 0 (halve items)
-        // or bigger (double items)
-        System.arraycopy(items, startFrom, newItems, (newLen - prevRightLen),
-                prevRightLen); // copy items on the right of startFrom
+        int startFrom = circulate(nextFirst, 1, prevLen);
+        int prevRightNum = getPrevRightNum(nextFirst, nextLast, prevLen, startFrom);
+        int prevLeftNum = size - prevRightNum;
+        System.arraycopy(items, startFrom, newItems, (newLen - prevRightNum),
+                prevRightNum); // copy items on the right of startFrom
         if (newLen > prevLen) {
             // if halve items, no need to copy items to the left half
             System.arraycopy(items, 0, newItems, 0,
-                    prevLeftLen); // copy items on the left of startFrom
+                    prevLeftNum); // copy items on the left of startFrom
         }
         // update startFrom & nextFirst & nextLast & items
-        startFrom = (newLen - prevRightLen);
+        startFrom = (newLen - prevRightNum);
         nextFirst = startFrom - 1;
-        nextLast = prevLeftLen;
+        nextLast = prevLeftNum;
         items = newItems;
     }
     /** check empty */
@@ -88,14 +85,15 @@ public class ArrayDeque<T> {
     }
     /** get item at given idx */
     public T get(int index) {
-        if (index > size - 1) {
+        if (index > size - 1 || index < 0) {
             return null;
         }
+        int startFrom = circulate(nextFirst, 1, items.length);
         return items[circulate(startFrom, index, items.length)];
     }
     /** print all items */
     public void printDeque() {
-        int currIdx = startFrom;
+        int currIdx = circulate(nextFirst, 1, items.length);
         while (items[currIdx] != null) {
             System.out.print(items[currIdx]);
             System.out.print(" ");
@@ -105,36 +103,21 @@ public class ArrayDeque<T> {
     }
     /** add to both sides */
     // add to first
-    private int updateNextFirst(int prevNextFirst) {
-        if (prevNextFirst == 0) {
-            return (items.length - 1);
-        }
-        return (prevNextFirst - 1);
-    }
     public void addFirst(T item) {
         if (size == items.length) {
             resize(items.length * REFACTOR);
         }
         items[nextFirst] = item;
-        nextFirst = updateNextFirst(nextFirst);
-        startFrom = setStartFromByNextFirst(startFrom, nextFirst);
+        nextFirst = circulate(nextFirst, -1, items.length);
         size += 1;
     }
-    // add to last
-    private int updateNextLast(int prevNextLast) {
-        if (prevNextLast == items.length) {
-            return 0;
-        }
-        return (prevNextLast + 1);
-    }
+    // add to last\
     public void addLast(T item) {
         if (size == items.length) {
             resize(items.length * REFACTOR);
         }
         items[nextLast] = item;
-        nextLast = updateNextLast(nextLast);
-        // only changing startFrom from -1 to positive idx is necessary
-        startFrom = setStartFromByNextFirst(startFrom, nextFirst);
+        nextLast = circulate(nextLast, 1, items.length);
         size += 1;
     }
     /** remove from both sides */
@@ -154,16 +137,16 @@ public class ArrayDeque<T> {
         }
         // check memory
         R = (double)size/(double)items.length;
-        if (R == Rbar) { // in fact, R will never smaller than 0.25
+        if (R <= Rbar) {
             resize(items.length/REFACTOR);
         }
         // save popped item & null out popped location
+        int startFrom = circulate(nextFirst, 1, items.length);
         T pop = items[startFrom];
         items[startFrom] = null;
         // update nextFirst & startFrom & size
         nextFirst = startFrom;
         size -= 1;
-        startFrom = degenStartFrom(size, startFrom);
 
         return pop;
     }
@@ -176,16 +159,16 @@ public class ArrayDeque<T> {
         }
         // check memory
         R = (double)size/(double)items.length;
-        if (R == Rbar) { // in fact, R will never smaller than 0.25
+        if (R <= Rbar) {
             resize(items.length/REFACTOR);
         }
         // save popped item & null out popped location
-        T pop = items[startFrom];
-        items[startFrom] = null;
+        int endWith = circulate(nextLast, -1, items.length);
+        T pop = items[endWith];
+        items[endWith] = null;
         // update nextLast & startFrom & size
-        nextLast = startFrom;
+        nextLast = endWith;
         size -= 1;
-        startFrom = degenStartFrom(size, startFrom);
 
         return pop;
     }
